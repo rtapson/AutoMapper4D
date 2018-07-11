@@ -107,6 +107,7 @@
         <DCCReference Include="uTestClassA.pas"/>
         <DCCReference Include="uTestClassB.pas"/>
         <DCCReference Include="uFuzzyStringMatch.pas"/>
+        <DCCReference Include="uTestTypes.pas"/>
         <BuildConfiguration Include="Release">
             <Key>Cfg_2</Key>
             <CfgParent>Base</CfgParent>

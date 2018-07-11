@@ -35,18 +35,24 @@ uses
   uTestClassA,
   uTestClassB,
   AutoMapper,
-  uFuzzyStringMatch;
+  uFuzzyStringMatch,
+  uTestTypes;
+
 
 procedure TForm3.Button1Click(Sender: TObject);
 var
   TestA : TTestClassA;
   TestB : TTestClassB;
+  i: Integer;
 begin
   TestA := TTestClassA.Create;
   TestA.Name := 'Testing This is a new object';
   TestA.TestDate := Now;
   TestA.CapTestProp := 'CapTestProp';
   TestA.First_Name := 'Thomas';
+  TestA.HasPropTrue := True;
+  TestA.TestEnum := teSecond;
+  TestA.Tests := [teFirst, teSecond];
 
   TestB := TAutoMapper<TTestClassB>.Map(TestA);
 
@@ -54,6 +60,20 @@ begin
   Memo1.Lines.Add(FormatDateTime('MM/DD/YYYY HH:nn:ss', TestB.TestDate));
   Memo1.Lines.Add(TestB.captestprop);
   Memo1.Lines.Add(TestB.FirstName);
+  if TestB.HasPropTrue then
+    Memo1.Lines.Add('True')
+  else
+    Memo1.Lines.Add('False');
+
+  case TestB.TestEnum of
+  teFirst : Memo1.Lines.Add('teFirst');
+  teSecond: Memo1.Lines.Add('teSecond');
+  end;
+
+  if teFirst in TestB.Tests then
+    Memo1.Lines.Add('TestB.Tests.teFirst');
+  if teSecond in TestB.Tests then
+    Memo1.Lines.Add('TestB.Tests.teSecond');
 end;
 
 procedure TForm3.Button2Click(Sender: TObject);

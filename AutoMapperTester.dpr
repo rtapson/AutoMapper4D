@@ -6,7 +6,8 @@ uses
   AutoMapper in 'AutoMapper.pas',
   uTestClassA in 'uTestClassA.pas',
   uTestClassB in 'uTestClassB.pas',
-  uFuzzyStringMatch in 'uFuzzyStringMatch.pas';
+  uFuzzyStringMatch in 'uFuzzyStringMatch.pas',
+  uTestTypes in 'uTestTypes.pas';
 
 {$R *.res}
 
