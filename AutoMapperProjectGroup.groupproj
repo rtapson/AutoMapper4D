@@ -1,0 +1,48 @@
+﻿<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+    <PropertyGroup>
+        <ProjectGuid>{846DB816-8A7F-4418-B994-EC42EA29C501}</ProjectGuid>
+    </PropertyGroup>
+    <ItemGroup>
+        <Projects Include="AutoMapperTester.dproj">
+            <Dependencies/>
+        </Projects>
+        <Projects Include="Tests\AutoMapperTests.dproj">
+            <Dependencies/>
+        </Projects>
+    </ItemGroup>
+    <ProjectExtensions>
+        <Borland.Personality>Default.Personality.12</Borland.Personality>
+        <Borland.ProjectType/>
+        <BorlandProject>
+            <Default.Personality/>
+        </BorlandProject>
+    </ProjectExtensions>
+    <Target Name="AutoMapperTester">
+        <MSBuild Projects="AutoMapperTester.dproj"/>
+    </Target>
+    <Target Name="AutoMapperTester:Clean">
+        <MSBuild Projects="AutoMapperTester.dproj" Targets="Clean"/>
+    </Target>
+    <Target Name="AutoMapperTester:Make">
+        <MSBuild Projects="AutoMapperTester.dproj" Targets="Make"/>
+    </Target>
+    <Target Name="AutoMapperTests">
+        <MSBuild Projects="Tests\AutoMapperTests.dproj"/>
+    </Target>
+    <Target Name="AutoMapperTests:Clean">
+        <MSBuild Projects="Tests\AutoMapperTests.dproj" Targets="Clean"/>
+    </Target>
+    <Target Name="AutoMapperTests:Make">
+        <MSBuild Projects="Tests\AutoMapperTests.dproj" Targets="Make"/>
+    </Target>
+    <Target Name="Build">
+        <CallTarget Targets="AutoMapperTester;AutoMapperTests"/>
+    </Target>
+    <Target Name="Clean">
+        <CallTarget Targets="AutoMapperTester:Clean;AutoMapperTests:Clean"/>
+    </Target>
+    <Target Name="Make">
+        <CallTarget Targets="AutoMapperTester:Make;AutoMapperTests:Make"/>
+    </Target>
+    <Import Project="$(BDS)\Bin\CodeGear.Group.Targets" Condition="Exists('$(BDS)\Bin\CodeGear.Group.Targets')"/>
+</Project>
