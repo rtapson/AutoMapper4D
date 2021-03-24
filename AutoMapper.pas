@@ -14,6 +14,11 @@ type
     class procedure Map(const Source : TObject; const Target : T; Configuration : IDictionary<string, string> = nil); overload;
   end;
 
+  AutoMapper4D = class helper for TObject
+    function Adapt<T: class, constructor>: T; overload;
+    procedure Adapt<T: class, constructor>(const DestObject: T); overload;
+  end;
+
 implementation
 
 uses
@@ -79,6 +84,19 @@ end;
 class procedure TAutoMapper<T>.Map(const Source: TObject; const Target: T; Configuration: IDictionary<string, string>);
 begin
   DoMapping(Source, Target, Configuration);
+end;
+
+{ AutoMapper4D }
+
+function AutoMapper4D.Adapt<T>: T;
+begin
+  Result := T.Create;
+  TAutoMapper<T>.Map(Self, Result);
+end;
+
+procedure AutoMapper4D.Adapt<T>(const DestObject: T);
+begin
+  TAutoMapper<T>.Map(Self, DestObject);
 end;
 
 end.

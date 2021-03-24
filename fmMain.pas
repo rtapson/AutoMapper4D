@@ -13,10 +13,14 @@ type
     Button2: TButton;
     Button3: TButton;
     Button4: TButton;
+    Button5: TButton;
+    Button6: TButton;
     procedure Button1Click(Sender: TObject);
     procedure Button2Click(Sender: TObject);
     procedure Button3Click(Sender: TObject);
     procedure Button4Click(Sender: TObject);
+    procedure Button5Click(Sender: TObject);
+    procedure Button6Click(Sender: TObject);
   private
     { Private declarations }
   public
@@ -116,6 +120,43 @@ begin
   TestB := TTestClassB.Create;
 
   TAutoMapper<TTestClassB>.Map(TestA, TestB);
+
+  Memo1.Lines.Add(TestB.Name);
+  Memo1.Lines.Add(FormatDateTime('MM/DD/YYYY HH:nn:ss', TestB.TestDate));
+  Memo1.Lines.Add(TestB.captestprop);
+  Memo1.Lines.Add(TestB.FirstName);
+end;
+
+procedure TForm3.Button5Click(Sender: TObject);
+//var
+//  TestA : TTestClassA;
+//  TestB : TTestClassB;
+begin
+  var TestA := TTestClassA.Create;
+  TestA.Name := 'Testing This is a new object';
+  TestA.TestDate := Now;
+  TestA.CapTestProp := 'CapTestProp';
+  TestA.First_Name := 'Thomas';
+
+  var TestB := TestA.Adapt<TTestClassB>;
+
+  Memo1.Lines.Add(TestB.Name);
+  Memo1.Lines.Add(FormatDateTime('MM/DD/YYYY HH:nn:ss', TestB.TestDate));
+  Memo1.Lines.Add(TestB.captestprop);
+  Memo1.Lines.Add(TestB.FirstName);
+end;
+
+procedure TForm3.Button6Click(Sender: TObject);
+begin
+  var TestA := TTestClassA.Create;
+  TestA.Name := 'Testing This is a new object';
+  TestA.TestDate := Now;
+  TestA.CapTestProp := 'CapTestProp';
+  TestA.First_Name := 'Thomas';
+
+  var TestB := TTestClassB.Create;
+
+  TestA.Adapt<TTestClassB>(TestB);
 
   Memo1.Lines.Add(TestB.Name);
   Memo1.Lines.Add(FormatDateTime('MM/DD/YYYY HH:nn:ss', TestB.TestDate));

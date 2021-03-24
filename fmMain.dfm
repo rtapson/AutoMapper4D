@@ -26,9 +26,9 @@ object Form3: TForm3
     OnClick = Button1Click
   end
   object Memo1: TMemo
-    Left = 112
+    Left = 164
     Top = 8
-    Width = 515
+    Width = 463
     Height = 283
     Anchors = [akLeft, akTop, akRight, akBottom]
     TabOrder = 1
@@ -44,7 +44,7 @@ object Form3: TForm3
   end
   object Button3: TButton
     Left = 8
-    Top = 168
+    Top = 88
     Width = 75
     Height = 25
     Caption = 'Button3'
@@ -53,11 +53,29 @@ object Form3: TForm3
   end
   object Button4: TButton
     Left = 8
-    Top = 232
+    Top = 119
     Width = 75
     Height = 25
     Caption = 'Button4'
     TabOrder = 4
     OnClick = Button4Click
+  end
+  object Button5: TButton
+    Left = 8
+    Top = 204
+    Width = 125
+    Height = 25
+    Caption = 'Class Helper New Obj'
+    TabOrder = 5
+    OnClick = Button5Click
+  end
+  object Button6: TButton
+    Left = 8
+    Top = 235
+    Width = 141
+    Height = 25
+    Caption = 'Class Helper Existing Obj'
+    TabOrder = 6
+    OnClick = Button6Click
   end
 end
