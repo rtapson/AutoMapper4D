@@ -35,7 +35,7 @@ implementation
 {$R *.dfm}
 
 uses
-  Spring.Collections,
+  System.Generics.Collections,
   uTestClassA,
   uTestClassB,
   AutoMapper,
@@ -84,16 +84,19 @@ procedure TForm3.Button2Click(Sender: TObject);
 var
   TestA : TTestClassA;
   TestB : TTestClassB;
-  Config : IDictionary<string, string>;
+  Config : TDictionary<string, string>;
 begin
   TestA := TTestClassA.Create;
   TestA.Name := 'Testing This is a new object';
   TestA.TestDate := Now;
 
-  Config := TCollections.CreateDictionary<string, string>;
-  Config.Add('Name', 'Name');
-
-  TestB := TAutoMapper<TTestClassB>.Map(TestA, Config);
+  Config := TDictionary<string, string>.Create;
+  try
+    Config.Add('Name', 'Name');   //target property <- source property
+    TestB := TAutoMapper<TTestClassB>.Map(TestA, Config);
+  finally
+    Config.Free;
+  end;
 
   Memo1.Lines.Add(TestB.Name);
   Memo1.Lines.Add(FormatDateTime('MM/DD/YYYY HH:nn:ss', TestB.TestDate));

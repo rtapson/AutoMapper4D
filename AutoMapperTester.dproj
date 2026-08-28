@@ -45,7 +45,7 @@
         <DCC_DcuOutput>.\$(Platform)\$(Config)</DCC_DcuOutput>
         <DCC_ExeOutput>.\$(Platform)\$(Config)</DCC_ExeOutput>
         <DCC_Namespace>System;Xml;Data;Datasnap;Web;Soap;Vcl;Vcl.Imaging;Vcl.Touch;Vcl.Samples;Vcl.Shell;$(DCC_Namespace)</DCC_Namespace>
-        <DCC_UnitSearchPath>c:\Rio\Comps\Spring\Source;c:\Rio\Comps\Spring\Source\Base;c:\Rio\Comps\Spring\Source\Base\Collections;c:\Rio\Comps\Spring\Source\Base\Logging;c:\Rio\Comps\Spring\Source\Base\Patches;c:\Rio\Comps\Spring\Source\Core\Container;c:\Rio\Comps\Spring\Source\Core\Interception;c:\Rio\Comps\Spring\Source\Core\Logging;c:\Rio\Comps\Spring\Source\Core\Mocking;c:\Rio\Comps\Spring\Source\Core\Services;c:\Rio\Comps\Spring\Source\Data\ObjectDataSet;c:\Rio\Comps\Spring\Source\Extensions\Cryptography;c:\Rio\Comps\Spring\Source\Extensions\Utils;c:\Rio\Comps\Spring\Source\Persistence\Adapters;c:\Rio\Comps\Spring\Source\Persistence\Core;c:\Rio\Comps\Spring\Source\Persistence\Criteria;c:\Rio\Comps\Spring\Source\Persistence\Mapping;c:\Rio\Comps\Spring\Source\Persistence\SQL;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
+        <DCC_UnitSearchPath>$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
         <DCC_UsePackage>RESTBackendComponents;CloudService;soaprtl;soapmidas;RESTComponents;FireDACIBDriver;FireDACCommon;soapserver;FireDACCommonDriver;inet;FireDAC;FireDACSqliteDriver;$(DCC_UsePackage)</DCC_UsePackage>
         <Icon_MainIcon>$(BDS)\bin\delphi_PROJECTICON.ico</Icon_MainIcon>
         <UWP_DelphiLogo150>$(BDS)\bin\Artwork\Windows\UWP\delphi_UwpDefault_150.png</UWP_DelphiLogo150>
