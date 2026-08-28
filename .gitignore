@@ -3,7 +3,10 @@
 #
 # Resource files are binaries containing manifest, project icon and version info.
 # They can not be viewed as text or compared by diff-tools. Consider replacing them with .rc files.
-#*.res
+# NOTE: excluded deliberately. The IDE regenerates a missing project .res on
+# build, but command-line dcc32 does not - it fails with E1026 File not found.
+# A command-line or CI build therefore needs the .res generated first.
+*.res
 #
 # Type library file (binary). In old Delphi versions it should be stored.
 # Since Delphi 2009 it is produced from .ridl file and can safely be ignored.
@@ -64,3 +67,24 @@ __recovery/
 
 # Castalia statistics file (since XE7 Castalia is distributed with Delphi)
 *.stat
+
+# ---------------------------------------------------------------------------
+# Lazarus / Free Pascal
+# ---------------------------------------------------------------------------
+
+# Lazarus session file: per-user editor and debugger state, the FPC equivalent
+# of Delphi's *.dsk. The project file (*.lpi) is deliberately NOT ignored -
+# it is shared project configuration and belongs in the repository.
+*.lps
+
+# Lazarus / FPC compiler output
+lib/
+*.ppu
+*.ppl
+*.compiled
+*.or
+
+# Leftovers from the Lazarus "Convert Delphi project" wizard
+AutomaticConversion.log
+backup/
+ConverterBackup/

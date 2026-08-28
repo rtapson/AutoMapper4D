@@ -1,0 +1,9 @@
+# The manifest's bytes are compiled verbatim into AutoMapperTester.res, so they
+# must not be rewritten by line-ending normalisation. Delphi's own manifest
+# template mixes CRLF and LF; letting core.autocrlf convert it would silently
+# change the compiled resource on every clone.
+*.manifest -text
+
+# Binary resources - never diff or convert.
+*.ico binary
+*.res binary
