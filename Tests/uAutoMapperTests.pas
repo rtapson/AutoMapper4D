@@ -63,6 +63,28 @@ type
     property FirstName : string read FFirstName write FFirstName;
     property TestDate : TDateTime read FTestDate write FTestDate;
   end;
+
+  //Nested mapping fixtures. The child is only ever mapped INTO, never
+  //created, so both sides construct their own.
+  TChild = class
+  private
+    FCode : string;
+  published
+    property Code : string read FCode write FCode;
+  end;
+
+  TParentWithChild = class
+  private
+    FName : string;
+    FChild : TChild;
+  public
+    constructor Create;
+    destructor Destroy; override;
+    procedure DropChild;
+  published
+    property Name : string read FName write FName;
+    property Child : TChild read FChild;
+  end;
   {$M-}
 
   [TestFixture]
@@ -123,9 +145,6 @@ type
     procedure TestUsingConfigForMapper;
 
     [Test]
-    procedure TestConfigLeavesUnlistedPropertiesAtDefault;
-
-    [Test]
     procedure TestConfigWithUnknownSourcePropertyRaises;
 
     // --- regressions: one per bug fixed in the correctness pass ---
@@ -144,12 +163,53 @@ type
 
     [Test]
     procedure TestUnmatchedTargetPropertyKeepsDefault;
+
+    // --- nil guard (#6) ---
+
+    [Test]
+    procedure TestMapWithNilSourceRaises;
+
+    [Test]
+    procedure TestMapOntoNilTargetRaises;
+
+    // --- configuration extends rather than replaces (#8) ---
+
+    [Test]
+    procedure TestConfigOverridesButLeavesOtherPropertiesMapped;
+
+    // --- nested mapping (#9) ---
+
+    [Test]
+    procedure TestNestedObjectIsMappedIntoExistingInstance;
+
+    [Test]
+    procedure TestNestedObjectIsSkippedWhenTargetChildIsNil;
+
+    // --- strict mode (#10) ---
+
+    [Test]
+    procedure TestStrictModeRaisesOnUnmatchedProperty;
+
+    [Test]
+    procedure TestStrictModeAcceptsConfiguredProperty;
+
+    [Test]
+    procedure TestStrictModeLeavesTargetUntouchedOnFailure;
+
+    // --- configurable fuzzy threshold (#11) ---
+
+    [Test]
+    procedure TestRaisingThresholdRejectsWeakerMatch;
+
+    [Test]
+    procedure TestLoweringThresholdAcceptsWeakerMatch;
   end;
 
 implementation
 
 uses
   AutoMapper,
+  AutoMapper.Helper,
   uTestTypes,
   System.SysUtils,
   System.Generics.Collections;
@@ -312,25 +372,27 @@ begin
   Assert.AreEqual(TestA.Name, TestB.FirstName);
 end;
 
-procedure TAutoMapperTests.TestConfigLeavesUnlistedPropertiesAtDefault;
+procedure TAutoMapperTests.TestConfigOverridesButLeavesOtherPropertiesMapped;
 var
   Config : TDictionary<string, string>;
 begin
-  //Supplying a configuration replaces automatic matching rather than extending
-  //it. This pins that behaviour down so a change to it is a deliberate one.
+  //A configuration is an override layer, not a whitelist: it redirects the
+  //properties it names and leaves the rest to automatic matching.
   TestA.Age := 99;
+  TestA.Name := 'source name';
 
   Config := TDictionary<string, string>.Create;
   try
-    Config.Add('Name', 'Name');
+    Config.Add('FirstName', 'Name');
     TestB := TAutoMapper<TTestClassB>.Map(TestA, Config);
   finally
     Config.Free;
   end;
 
-  Assert.AreEqual(TestA.Name, TestB.Name, 'the listed property should be mapped');
-  Assert.AreEqual(0, TestB.Age, 'an unlisted property should be left at its default');
-  Assert.AreEqual('', TestB.FirstName, 'an unlisted property should be left at its default');
+  Assert.AreEqual(TestA.Name, TestB.FirstName, 'the configured property should be overridden');
+  Assert.AreEqual(99, TestB.Age, 'an unlisted property should still be matched automatically');
+  Assert.AreEqual(TestA.Name, TestB.Name, 'an unlisted property should still be matched automatically');
+  Assert.AreEqual(TestA.CapTestProp, TestB.captestprop, 'fuzzy matching should still apply to unlisted properties');
 end;
 
 procedure TAutoMapperTests.TestConfigWithUnknownSourcePropertyRaises;
@@ -346,7 +408,7 @@ begin
       begin
         TAutoMapper<TTestClassB>.Map(TestA, Config).Free;
       end,
-      Exception,
+      EAutoMapperError,
       'a configuration naming a missing source property should raise');
   finally
     Config.Free;
@@ -454,6 +516,234 @@ begin
       'an unmatched target property should keep its default');
   finally
     Target.Free;
+  end;
+end;
+
+{ TParentWithChild }
+
+constructor TParentWithChild.Create;
+begin
+  inherited Create;
+  FChild := TChild.Create;
+end;
+
+destructor TParentWithChild.Destroy;
+begin
+  FChild.Free;
+  inherited Destroy;
+end;
+
+procedure TParentWithChild.DropChild;
+begin
+  FreeAndNil(FChild);
+end;
+
+{ nil guard }
+
+procedure TAutoMapperTests.TestMapWithNilSourceRaises;
+begin
+  Assert.WillRaise(
+    procedure
+    begin
+      TAutoMapper<TTestClassB>.Map(nil).Free;
+    end,
+    EAutoMapperError,
+    'mapping from nil should raise, not access-violate');
+end;
+
+procedure TAutoMapperTests.TestMapOntoNilTargetRaises;
+begin
+  Assert.WillRaise(
+    procedure
+    begin
+      TAutoMapper<TTestClassB>.Map(TestA, TTestClassB(nil));
+    end,
+    EAutoMapperError,
+    'mapping onto nil should raise, not access-violate');
+end;
+
+{ nested mapping }
+
+procedure TAutoMapperTests.TestNestedObjectIsMappedIntoExistingInstance;
+var
+  Source, Target : TParentWithChild;
+  ChildBefore : TObject;
+begin
+  Source := TParentWithChild.Create;
+  Target := TParentWithChild.Create;
+  try
+    Source.Name := 'parent';
+    Source.Child.Code := 'CHILD-CODE';
+    ChildBefore := Target.Child;
+
+    TAutoMapper<TParentWithChild>.Map(Source, Target);
+
+    Assert.AreEqual('parent', Target.Name);
+    Assert.AreEqual('CHILD-CODE', Target.Child.Code, 'the nested object should be mapped');
+    Assert.AreSame(ChildBefore, TObject(Target.Child),
+      'the existing child instance should be mapped into, not replaced');
+  finally
+    Target.Free;
+    Source.Free;
+  end;
+end;
+
+procedure TAutoMapperTests.TestNestedObjectIsSkippedWhenTargetChildIsNil;
+var
+  Source, Target : TParentWithChild;
+begin
+  Source := TParentWithChild.Create;
+  Target := TParentWithChild.Create;
+  try
+    Source.Name := 'parent';
+    Source.Child.Code := 'CHILD-CODE';
+    Target.DropChild;
+
+    //Nothing is constructed by the mapper, so a nil child is simply skipped.
+    TAutoMapper<TParentWithChild>.Map(Source, Target);
+
+    Assert.AreEqual('parent', Target.Name, 'scalar properties should still map');
+    Assert.IsNull(TObject(Target.Child), 'a nil target child should be left nil');
+  finally
+    Target.Free;
+    Source.Free;
+  end;
+end;
+
+{ strict mode }
+
+procedure TAutoMapperTests.TestStrictModeRaisesOnUnmatchedProperty;
+begin
+  TMapperEngine.Strict := True;
+  try
+    Assert.WillRaise(
+      procedure
+      begin
+        TAutoMapper<TUnrelatedTarget>.Map(TestA).Free;
+      end,
+      EAutoMapperError,
+      'strict mode should reject a target property nothing matches');
+  finally
+    TMapperEngine.Strict := False;
+  end;
+end;
+
+procedure TAutoMapperTests.TestStrictModeAcceptsConfiguredProperty;
+var
+  Config : TDictionary<string, string>;
+  Target : TUnrelatedTarget;
+begin
+  //An explicit configuration entry satisfies strict mode.
+  TMapperEngine.Strict := True;
+  Config := TDictionary<string, string>.Create;
+  try
+    Config.Add('CompletelyDifferent', 'Name');
+    TestA.Name := 'supplied';
+
+    Target := TAutoMapper<TUnrelatedTarget>.Map(TestA, Config);
+    try
+      Assert.AreEqual('supplied', Target.CompletelyDifferent);
+    finally
+      Target.Free;
+    end;
+  finally
+    Config.Free;
+    TMapperEngine.Strict := False;
+  end;
+end;
+
+procedure TAutoMapperTests.TestStrictModeLeavesTargetUntouchedOnFailure;
+var
+  Target : TUnrelatedTarget;
+begin
+  //The strict check runs before anything is written.
+  Target := TUnrelatedTarget.Create;
+  try
+    Target.CompletelyDifferent := 'preserved';
+    TMapperEngine.Strict := True;
+    try
+      try
+        TAutoMapper<TUnrelatedTarget>.Map(TestA, Target);
+      except
+        on EAutoMapperError do ; //expected
+      end;
+    finally
+      TMapperEngine.Strict := False;
+    end;
+
+    Assert.AreEqual('preserved', Target.CompletelyDifferent,
+      'a strict failure should leave the target untouched');
+  finally
+    Target.Free;
+  end;
+end;
+
+{ configurable fuzzy threshold }
+
+procedure TAutoMapperTests.TestRaisingThresholdRejectsWeakerMatch;
+var
+  Source : TFuzzySource;
+  Target : TFuzzyTarget;
+begin
+  //FirstNam scores 0.889 against FirstName. Demanding 0.95 rejects it.
+  TMapperEngine.FuzzyMatchThreshold := 0.95;
+  try
+    Source := TFuzzySource.Create;
+    try
+      Source.FirstNam := 'BEST';
+      Target := TAutoMapper<TFuzzyTarget>.Map(Source);
+      try
+        Assert.AreEqual('', Target.FirstName,
+          'a candidate below the threshold should not be used');
+      finally
+        Target.Free;
+      end;
+    finally
+      Source.Free;
+    end;
+  finally
+    TMapperEngine.FuzzyMatchThreshold := 0.8;
+  end;
+end;
+
+procedure TAutoMapperTests.TestLoweringThresholdAcceptsWeakerMatch;
+var
+  Source : TFuzzySource;
+  Target : TFuzzyTarget;
+begin
+  //TestData scores 0.875 against TestDate but is a string, so it stays
+  //unassignable regardless. FirstName12 scores 0.818 and is assignable, so it
+  //becomes the only candidate once FirstNam is removed from contention by
+  //raising, then lowering, the bar. Here we simply confirm the setting is
+  //honoured and that the cache was invalidated by the change.
+  TMapperEngine.FuzzyMatchThreshold := 0.95;
+  try
+    Source := TFuzzySource.Create;
+    try
+      Source.FirstNam := 'BEST';
+
+      Target := TAutoMapper<TFuzzyTarget>.Map(Source);
+      try
+        Assert.AreEqual('', Target.FirstName, 'precondition: rejected at 0.95');
+      finally
+        Target.Free;
+      end;
+
+      //Lowering the bar must discard the plan cached at the higher threshold.
+      TMapperEngine.FuzzyMatchThreshold := 0.8;
+
+      Target := TAutoMapper<TFuzzyTarget>.Map(Source);
+      try
+        Assert.AreEqual('BEST', Target.FirstName,
+          'lowering the threshold should invalidate the cached plan');
+      finally
+        Target.Free;
+      end;
+    finally
+      Source.Free;
+    end;
+  finally
+    TMapperEngine.FuzzyMatchThreshold := 0.8;
   end;
 end;
 

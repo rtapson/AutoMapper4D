@@ -39,6 +39,7 @@ uses
   uTestClassA,
   uTestClassB,
   AutoMapper,
+  AutoMapper.Helper,
   uFuzzyStringMatch,
   uTestTypes;
 

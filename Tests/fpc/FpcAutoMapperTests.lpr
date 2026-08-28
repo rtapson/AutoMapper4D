@@ -10,7 +10,8 @@ uses
   uTestClassA,
   uTestClassB,
   uFuzzyStringMatch,
-  AutoMapper;
+  AutoMapper,
+  AutoMapper.Helper;   //opt-in: brings in the Adapt<T> sugar
 
 var
   Failures : Integer = 0;
@@ -120,8 +121,9 @@ begin
     Config.Add('FirstName', 'Name');   //target FirstName <- source Name
     B := TAutoMapper<TTestClassB>.Map(A, Config);
     try
-      Check('config maps listed property', B.FirstName = A.Name, '(got "' + B.FirstName + '")');
-      Check('config skips unlisted property', B.Age = 0, '(got ' + IntToStr(B.Age) + ')');
+      Check('config overrides the listed property', B.FirstName = A.Name, '(got "' + B.FirstName + '")');
+      //A configuration is an override layer, not a whitelist.
+      Check('unlisted properties still map automatically', B.Age = A.Age, '(got ' + IntToStr(B.Age) + ')');
     finally
       B.Free;
     end;

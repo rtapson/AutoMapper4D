@@ -60,19 +60,22 @@ is left untouched.
 
 ### The `Adapt<T>` helper
 
-`AutoMapper.pas` also declares a class helper that puts the same two operations
-on every object:
+An optional class helper puts the same two operations on every object:
 
 ```pascal
+uses
+  AutoMapper, AutoMapper.Helper;   // the helper lives in its own unit
+
 Dto := Customer.Adapt<TCustomerDto>;   // returns a new object
 Customer.Adapt<TCustomerDto>(Dto);     // maps onto an existing one
 ```
 
-> **Note:** `Adapt` comes from `AutoMapper4D = class helper for TObject`. Delphi
-> allows only one active helper per type in a given scope, so if your codebase
-> has another `TObject` helper, whichever unit appears later in the `uses`
-> clause wins and the other's methods become invisible — with no compiler
-> warning. Use `TAutoMapper<T>.Map` directly if that is a concern.
+> **Why a separate unit:** `Adapt` comes from `AutoMapper4D = class helper for
+> TObject`, and Delphi allows only **one** active helper per type in a given
+> scope — whichever unit appears later in the `uses` clause wins, and the
+> other's methods silently become invisible with no compiler warning. Keeping
+> it out of `AutoMapper.pas` means using the mapper does not cost you your one
+> `TObject` helper slot. Add `AutoMapper.Helper` only if you want the sugar.
 
 ### Explicit configuration
 
@@ -98,41 +101,83 @@ begin
 The mapper never takes ownership of the dictionary — create and free it
 yourself.
 
-> **Important:** supplying a configuration replaces automatic matching rather
-> than extending it. Only the properties listed in the dictionary are mapped;
-> everything else is left at its default. To override one property you must
-> currently list them all.
+A configuration is an **override layer, not a whitelist**. Properties it names
+are redirected; every other target property is still matched automatically by
+name and fuzzily. So you only list the awkward cases:
+
+```pascal
+//   Dto.FullName  <-  Customer.Name    (from the configuration)
+//   Dto.Age       <-  Customer.Age     (matched automatically)
+//   Dto.Email     <-  Customer.Email   (matched automatically)
+```
 
 An entry naming a source property that does not exist, or one whose value
-cannot be assigned to the target, raises an exception rather than being
-silently skipped.
-
+cannot be assigned to the target, raises `EAutoMapperError` rather than being
+silently skipped. Mapping from or onto `nil` raises `EAutoMapperError` too.
 ## How properties are matched
 
-For each writable property on the target, in order:
+For each mappable property on the target, in order:
 
 1. **Exact name.** Names are compared case-insensitively, so `CapTestProp`
    maps to `captestprop`.
-2. **Fuzzy name.** If no name matches, every source property is scored with a
-   Damerau-Levenshtein similarity ratio and the **highest scoring** candidate
-   at or above **0.8** wins. This is what maps `First_Name` to `FirstName`
-   (ratio 0.9).
+2. **Fuzzy name.** If no usable name matches, every source property is scored
+   with a Damerau-Levenshtein similarity ratio and the **highest scoring**
+   candidate at or above the threshold (**0.8** by default) wins. This is what
+   maps `First_Name` to `FirstName` (ratio 0.9).
 
 A candidate is only considered if it is actually usable: the source property
-must be readable, the target writable, and the types assignment compatible.
-An unassignable top scorer does not block a lower scoring but valid match.
+must be readable, the target writable, and the types assignment compatible. An
+unassignable top scorer does not block a lower scoring but valid match, and an
+exact name match that turns out to be unusable falls through to fuzzy matching
+rather than counting as matched.
+
+### Nested objects
+
+When **both** sides are object properties, the mapper descends into the
+instance the target **already holds**:
+
+```pascal
+Dto := TCustomerDto.Create;   // Dto.Address already constructed
+TAutoMapper<TCustomerDto>.Map(Customer, Dto);
+//   Dto.Address is mapped into — the same instance, never replaced
+```
+
+Nothing is ever constructed for you, so ownership never changes hands: if the
+target's object property is `nil` it is simply skipped. Recursion is capped at
+16 levels, after which `EAutoMapperError` is raised, since two object graphs
+that both contain a cycle would otherwise recurse forever.
 
 ### What is not mapped
 
-- **Object-typed properties are skipped.** There is no nested or deep mapping.
 - Read-only target properties and write-only source properties are skipped.
 - Type-incompatible pairs are skipped.
+- A nested object property whose **target** side is `nil` is skipped.
 - Interface, record, and dynamic array properties are copied as-is, by
   reference or by value — no deep copy.
 
-Nothing is reported when a target property finds no match; it simply keeps its
-default value.
+By default an unmatched target property simply keeps its value. Turn on strict
+mode to make that an error instead — see below.
 
+## Settings
+
+Both are global, and live on `TMapperEngine`.
+
+```pascal
+//Reject anything below 0.95 as a fuzzy match. Changing this discards
+//cached plans, since they were resolved against the old threshold.
+TMapperEngine.FuzzyMatchThreshold := 0.95;
+
+//Raise EAutoMapperError when a target property matches nothing, instead of
+//quietly leaving it at its default. Off by default.
+TMapperEngine.Strict := True;
+
+//Discard cached plans, e.g. after unloading a package.
+TMapperEngine.ClearCache;
+```
+
+Strict mode counts an explicit configuration entry as a match, and runs its
+check **before** anything is written — so a strict failure leaves the target
+exactly as it was.
 ## Performance
 
 Name matching and fuzzy scoring depend only on the source and target *types*,
