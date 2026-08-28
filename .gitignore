@@ -88,3 +88,6 @@ lib/
 AutomaticConversion.log
 backup/
 ConverterBackup/
+
+# Free Pascal test output
+Tests/fpc/out/
