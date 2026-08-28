@@ -64,3 +64,24 @@ __recovery/
 
 # Castalia statistics file (since XE7 Castalia is distributed with Delphi)
 *.stat
+
+# ---------------------------------------------------------------------------
+# Lazarus / Free Pascal
+# ---------------------------------------------------------------------------
+
+# Lazarus session file: per-user editor and debugger state, the FPC equivalent
+# of Delphi's *.dsk. The project file (*.lpi) is deliberately NOT ignored -
+# it is shared project configuration and belongs in the repository.
+*.lps
+
+# Lazarus / FPC compiler output
+lib/
+*.ppu
+*.ppl
+*.compiled
+*.or
+
+# Leftovers from the Lazarus "Convert Delphi project" wizard
+AutomaticConversion.log
+backup/
+ConverterBackup/
