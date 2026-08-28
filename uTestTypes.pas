@@ -1,5 +1,10 @@
 unit uTestTypes;
 
+{$IFDEF FPC}
+  {$MODE Delphi}
+  {$H+}
+{$ENDIF}
+
 interface
 
 type

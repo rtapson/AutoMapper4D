@@ -1,5 +1,10 @@
 unit uFuzzyStringMatch;
 
+{$IFDEF FPC}
+  {$MODE Delphi}
+  {$H+}
+{$ENDIF}
+
 interface
 
 type
@@ -18,7 +23,11 @@ type
 implementation
 
 uses
+{$IFDEF FPC}
+  SysUtils;
+{$ELSE}
   System.SysUtils;
+{$ENDIF}
 
 { TFuzzyStringMatch }
 
@@ -36,7 +45,10 @@ var
   LenStr1, LenStr2: Integer;
   I, J, T, Cost, PrevCost: Integer;
   pStr1, pStr2, S1, S2: PChar;
-  D: PIntegerArray;
+  //A managed dynamic array rather than GetMem: it is exception safe, needs no
+  //FreeMem, and does not depend on PIntegerArray, which differs between
+  //Delphi and FPC.
+  D: array of Integer;
 begin
   LenStr1 := Length(Str1);
   LenStr2 := Length(Str2);
@@ -80,7 +92,7 @@ begin
   end;
 
   // calculate the edit distance
-  GetMem(D, (LenStr2 + 1) * SizeOf(Integer));
+  SetLength(D, LenStr2 + 1);
 
   for I := 0 to LenStr2 do
     D[I] := I;
@@ -104,7 +116,6 @@ begin
     Inc(S1);
   end;
   Result := D[LenStr2];
-  FreeMem(D);
 end;
 
 class function TFuzzyStringMatch.StringSimilarityRatio(const Str1, Str2: String; IgnoreCase: Boolean): Double;

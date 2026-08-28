@@ -30,8 +30,11 @@ end;
   (`ProjectVersion` 18.8); the library is built and tested against Delphi 12.
   The demo application uses inline variable declarations, so it needs 10.3 or
   later.
-- **No third-party dependencies.** The library uses only the Delphi RTL —
-  `System.Rtti`, `System.TypInfo` and `System.Generics.Collections`.
+- **Free Pascal 3.2.2** also works — see [Free Pascal / Lazarus](#free-pascal--lazarus)
+  for the two limitations that come with it.
+- **No third-party dependencies.** The library uses only the RTL —
+  `System.Rtti`, `System.TypInfo` and `System.Generics.Collections` (undotted
+  under FPC).
 
 Add `AutoMapper.pas` and `uFuzzyStringMatch.pas` to your project. That is all.
 
@@ -176,21 +179,47 @@ cannot compile the numeric `RT_MANIFEST` entry this script uses.
 runs as a console application, and supports TestInsight when built with the
 `TESTINSIGHT` define.
 
-## Lazarus / Free Pascal
+For Free Pascal there is a separate console test at `Tests/fpc`; see
+[Free Pascal / Lazarus](#free-pascal--lazarus).
 
-The `fpcAutoMapperTests` and `.lpi` project files are a work in progress and
-**do not currently build.** Spring4D used to be the blocker; now that the
-library is RTL-only the remaining gaps are in Free Pascal itself. Compiling
-`AutoMapper.pas` with FPC 3.2.2 in Delphi mode reports:
+## Free Pascal / Lazarus
 
-- the RTL unit names are undotted under FPC (`Rtti`, `TypInfo`,
-  `Generics.Collections`), so the `uses` clauses need conditionals;
-- `TValue.TryCast` is not implemented in FPC's `Rtti` unit;
-- `TMonitor` does not exist — FPC would need `TCriticalSection` from `SyncObjs`;
-- FPC still marks its `Rtti` unit as experimental.
+Supported, and verified against **FPC 3.2.2**. The same sources build on both
+compilers; the `uses` clauses switch on `{$IFDEF FPC}`.
 
-`automappertestcase1.pas` is also still the generated stub, whose only test
-calls `Fail('Write your own test')`.
+```
+Tests\fpc\build-and-run.cmd
+```
+
+builds and runs `Tests/fpc/FpcAutoMapperTests.lpr`, a console program covering
+automatic mapping, case-insensitive and fuzzy name matching, mapping onto an
+existing object, both `Adapt<T>` overloads, configuration, and the cached plan
+path.
+
+### Two limitations on FPC
+
+Both come from Free Pascal's RTTI rather than from this library, and both are a
+strict subset of the Delphi behaviour — nothing maps *differently*, only fewer
+things map.
+
+**Only `published` properties are visible.** Delphi's extended RTTI covers
+public members by default; FPC's `Rtti` is built on classic published-only
+RTTI, so a class with `public` properties presents *zero* properties to the
+mapper. Declare mapped properties `published`, with `{$M+}` if the class does
+not already descend from `TPersistent`. `published` works identically on
+Delphi, so one set of classes serves both — `uTestClassA`/`uTestClassB` show
+the pattern.
+
+**Fewer types map.** FPC's `TRttiProperty.GetValue`/`SetValue` implement a
+subset of type kinds and *raise* on the rest, so unsupported kinds are skipped.
+Most visibly, **set properties are not mapped on FPC** (`TTests` in the
+samples). There is also no `TValue.TryCast` in FPC, so the FPC build maps
+identically typed properties only, where Delphi also converts within the
+ordinal/float and string families.
+
+`automappertestcase1.pas` in the repository root is still the generated fpcunit
+stub, whose only test calls `Fail('Write your own test')`. The program above is
+the working test.
 
 ## License
 
