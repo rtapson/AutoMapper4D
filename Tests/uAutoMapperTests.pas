@@ -58,6 +58,9 @@ uses
 
 procedure TAutoMapperTests.Setup;
 begin
+  //Cleared up front: the fixture instance is reused across tests, so a test
+  //that never assigns TestB must not let TearDown free the previous one.
+  TestB := nil;
   TestA := TTestClassA.Create;
   TestA.TestDate := Now;
   TestA.CapTestProp := 'CapTestProp';
@@ -70,8 +73,8 @@ end;
 
 procedure TAutoMapperTests.TearDown;
 begin
-  TestA.Free;
-  TestB.Free;
+  FreeAndNil(TestA);
+  FreeAndNil(TestB);
 end;
 
 procedure TAutoMapperTests.TestBooleanProperty(const AValue: Boolean);
