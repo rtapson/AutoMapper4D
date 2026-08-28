@@ -1,0 +1,33 @@
+/*
+  Resource script for AutoMapperTester.
+
+  AutoMapperTester.res is a compiled binary and is excluded by .gitignore, so
+  this script is the checked-in source it is built from. The Delphi IDE
+  regenerates a missing project .res on its own, but a command-line build does
+  not - dcc32 fails with "E1026 File not found: 'AutoMapperTester.res'".
+  Compile this first when building from a clean clone:
+
+      brcc32 AutoMapperTester.rc
+
+  build.cmd does that for you. The contents below were extracted from the .res
+  that was previously committed, so a build from this script produces the same
+  resources the project shipped with.
+
+  Note there is deliberately no VERSIONINFO block: version info is not enabled
+  for this project, and the original .res carried no VERSION resource.
+*/
+
+LANGUAGE 0x09, 0x01   /* LANG_ENGLISH, SUBLANG_ENGLISH_US - 1033, as original */
+
+/* Application icon (5 images: 16x16 through 256x256) */
+MAINICON ICON "AutoMapperTester.ico"
+
+/* Application manifest: per-monitor DPI aware, Common Controls 6, asInvoker.
+   Type 24 is RT_MANIFEST; name 1 is CREATEPROCESS_MANIFEST_RESOURCE_ID. */
+1 24 "AutoMapperTester.manifest"
+
+/* Delphi platform marker written into every project .res (Win32 = 1) */
+PLATFORMTARGETS RCDATA
+{
+  0x0001
+}
