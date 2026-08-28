@@ -39,7 +39,7 @@
         <DCC_DcuOutput>.\$(Platform)\$(Config)</DCC_DcuOutput>
         <DCC_ExeOutput>.\$(Platform)\$(Config)</DCC_ExeOutput>
         <DCC_Namespace>System;Xml;Data;Datasnap;Web;Soap;$(DCC_Namespace)</DCC_Namespace>
-        <DCC_UnitSearchPath>$(DUnitX);C:\Code\spring4d1.2\Source;C:\Code\spring4d1.2\Source\Base;C:\Code\spring4d1.2\Source\Base\Collections;C:\Code\spring4d1.2\Source\Base\Logging;C:\Code\spring4d1.2\Source\Base\Patches;C:\Code\spring4d1.2\Source\Core\Container;C:\Code\spring4d1.2\Source\Core\Interception;C:\Code\spring4d1.2\Source\Core\Logging;C:\Code\spring4d1.2\Source\Core\Mocking;C:\Code\spring4d1.2\Source\Core\Services;C:\Code\spring4d1.2\Source\Data\ObjectDataSet;C:\Code\spring4d1.2\Source\Extensions\Cryptography;C:\Code\spring4d1.2\Source\Extensions\Utils;C:\Code\spring4d1.2\Source\Persistence\Adapters;C:\Code\spring4d1.2\Source\Persistence\Core;C:\Code\spring4d1.2\Source\Persistence\Criteria;C:\Code\spring4d1.2\Source\Persistence\Mapping;C:\Code\spring4d1.2\Source\Persistence\SQL;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
+        <DCC_UnitSearchPath>$(DUnitX);$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
         <Icns_MainIcns>$(BDS)\bin\delphi_PROJECTICNS.icns</Icns_MainIcns>
         <Icon_MainIcon>$(BDS)\bin\delphi_PROJECTICON.ico</Icon_MainIcon>
         <UsingDelphiRTL>true</UsingDelphiRTL>

@@ -30,12 +30,10 @@ end;
   (`ProjectVersion` 18.8); the library is built and tested against Delphi 12.
   The demo application uses inline variable declarations, so it needs 10.3 or
   later.
-- **[Spring4D](https://bitbucket.org/sglienke/spring4d).** Required, not
-  optional — `AutoMapper.pas` uses `Spring.Collections` for `IDictionary` and
-  `Spring.Reflection` for RTTI helpers.
+- **No third-party dependencies.** The library uses only the Delphi RTL —
+  `System.Rtti`, `System.TypInfo` and `System.Generics.Collections`.
 
-Add Spring4D's `Source` directories to your project's unit search path, then add
-`AutoMapper.pas` and `uFuzzyStringMatch.pas` to your project.
+Add `AutoMapper.pas` and `uFuzzyStringMatch.pas` to your project. That is all.
 
 ## Usage
 
@@ -80,16 +78,22 @@ name** and the **value is the source property name**:
 
 ```pascal
 uses
-  Spring.Collections, AutoMapper;
+  System.Generics.Collections, AutoMapper;
 
 var
-  Config : IDictionary<string, string>;
+  Config : TDictionary<string, string>;
 begin
-  Config := TCollections.CreateDictionary<string, string>;
-  Config.Add('FullName', 'Name');   // target FullName  <-  source Name
-
-  Dto := TAutoMapper<TCustomerDto>.Map(Customer, Config);
+  Config := TDictionary<string, string>.Create;
+  try
+    Config.Add('FullName', 'Name');   // target FullName  <-  source Name
+    Dto := TAutoMapper<TCustomerDto>.Map(Customer, Config);
+  finally
+    Config.Free;
+  end;
 ```
+
+The mapper never takes ownership of the dictionary — create and free it
+yourself.
 
 > **Important:** supplying a configuration replaces automatic matching rather
 > than extending it. Only the properties listed in the dictionary are mapped;
@@ -130,15 +134,13 @@ default value.
 
 Name matching and fuzzy scoring depend only on the source and target *types*,
 so the resolved mapping is computed once per type pair and cached, then
-replayed for each object. Mapping ~20,000 objects of an 8-property class runs
-at roughly 2 µs per object.
+replayed for each object. Property type handles are resolved into the plan as
+well, so replaying it never re-enters the RTTI pool. Mapping ~20,000 objects of
+an 8-property class runs at roughly 2 µs per object.
 
-The cache is thread-safe. Plans are built outside the lock, so a race on a cold
-cache just means the same plan is built twice rather than a lock being held
-across RTTI work.
-
-Explicit configuration mappings are not cached, since the dictionary can differ
-on every call.
+The cache is thread-safe, and was stress-tested with eight threads mapping
+concurrently from a cold cache. Explicit configuration mappings are not cached,
+since the dictionary can differ on every call.
 
 ## Building
 
@@ -146,10 +148,6 @@ on every call.
 
 - `AutoMapperTester.dproj` — a small VCL demo application
 - `Tests/AutoMapperTests.dproj` — the DUnitX test suite
-
-> The unit search paths stored in the `.dproj` files point at the Spring4D
-> location on the original author's machine (`c:\Rio\Comps\Spring`,
-> `C:\Code\spring4d1.2`). Adjust them to wherever Spring4D lives on yours.
 
 ### Resources
 
@@ -181,10 +179,18 @@ runs as a console application, and supports TestInsight when built with the
 ## Lazarus / Free Pascal
 
 The `fpcAutoMapperTests` and `.lpi` project files are a work in progress and
-**do not currently build.** `AutoMapper.pas` depends on Spring4D and on dotted
-RTL unit names, neither of which is available under FPC; `AutomaticConversion.log`
-records the Lazarus conversion wizard aborting, and `automappertestcase1.pas` is
-still the generated stub.
+**do not currently build.** Spring4D used to be the blocker; now that the
+library is RTL-only the remaining gaps are in Free Pascal itself. Compiling
+`AutoMapper.pas` with FPC 3.2.2 in Delphi mode reports:
+
+- the RTL unit names are undotted under FPC (`Rtti`, `TypInfo`,
+  `Generics.Collections`), so the `uses` clauses need conditionals;
+- `TValue.TryCast` is not implemented in FPC's `Rtti` unit;
+- `TMonitor` does not exist — FPC would need `TCriticalSection` from `SyncObjs`;
+- FPC still marks its `Rtti` unit as experimental.
+
+`automappertestcase1.pas` is also still the generated stub, whose only test
+calls `Fail('Write your own test')`.
 
 ## License
 

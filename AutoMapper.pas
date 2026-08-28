@@ -3,17 +3,23 @@ unit AutoMapper;
 interface
 
 uses
+  System.TypInfo,
   System.Rtti,
-  Spring.Collections;
+  System.Generics.Collections;
 
 type
   TAutoMapper<T : class, constructor> = class
   private
     type
-      //One resolved source -> target property pair.
+      //One resolved source -> target property pair. The type handles are
+      //resolved once, when the plan is built, so that replaying a plan never
+      //has to touch TRttiProperty.PropertyType and therefore never re-enters
+      //the RTTI pool.
       TPropertyMapping = record
         Source : TRttiProperty;
         Target : TRttiProperty;
+        TargetTypeInfo : PTypeInfo;
+        SameType : Boolean;
       end;
       //The full set of pairs for a given source type. Name matching and fuzzy
       //scoring depend only on the two types involved, so the plan is computed
@@ -24,8 +30,11 @@ type
       //considered a fuzzy match for a target property.
       FuzzyMatchThreshold = 0.8;
     class var
+      //Long lived on purpose: cached plans hold TRttiProperty references, which
+      //belong to this context's pool and would dangle if it were released.
+      FContext : TRttiContext;
       //Keyed on the source PTypeInfo; the target type is fixed per T.
-      FPlanCache : IDictionary<Pointer, TMappingPlan>;
+      FPlanCache : TDictionary<PTypeInfo, TMappingPlan>;
       FLock : TObject;
 
     class constructor Create;
@@ -47,11 +56,15 @@ type
     class function BuildPlan(const SourceType : TRttiType) : TMappingPlan;
     class function GetPlan(const Entity : TObject) : TMappingPlan;
     class procedure MapUsingConfiguration(const Entity : TObject; const Target : TObject;
-      const Configuration : IDictionary<string, string>);
-    class procedure DoMapping(const Entity : TObject; const Target : TObject; Configuration : IDictionary<string, string>);
+      const Configuration : TDictionary<string, string>);
+    class procedure DoMapping(const Entity : TObject; const Target : TObject;
+      Configuration : TDictionary<string, string>);
   public
-    class function Map(const Entity : TObject; Configuration : IDictionary<string, string> = nil): T; overload;
-    class procedure Map(const Source : TObject; const Target : T; Configuration : IDictionary<string, string> = nil); overload;
+    //Configuration, when supplied, maps target property name -> source property
+    //name. The caller retains ownership of the dictionary; it is never freed
+    //here.
+    class function Map(const Entity : TObject; Configuration : TDictionary<string, string> = nil): T; overload;
+    class procedure Map(const Source : TObject; const Target : T; Configuration : TDictionary<string, string> = nil); overload;
   end;
 
   AutoMapper4D = class helper for TObject
@@ -63,22 +76,22 @@ implementation
 
 uses
   System.SysUtils,
-  System.TypInfo,
-  Spring.Reflection,
   uFuzzyStringMatch;
 
 { TAutoMapper<T> }
 
 class constructor TAutoMapper<T>.Create;
 begin
+  FContext := TRttiContext.Create;
   FLock := TObject.Create;
-  FPlanCache := TCollections.CreateDictionary<Pointer, TMappingPlan>;
+  FPlanCache := TDictionary<PTypeInfo, TMappingPlan>.Create;
 end;
 
 class destructor TAutoMapper<T>.Destroy;
 begin
-  FPlanCache := nil;
+  FPlanCache.Free;
   FLock.Free;
+  FContext.Free;
 end;
 
 class function TAutoMapper<T>.IsAssignable(const Source, Target : TRttiType) : Boolean;
@@ -121,134 +134,131 @@ end;
 
 class function TAutoMapper<T>.BuildPlan(const SourceType : TRttiType) : TMappingPlan;
 var
-  Plan : TMappingPlan;
+  TargetProps, SourceProps : TArray<TRttiProperty>;
+  TargetProp, SourceProp, Prop, BestProp : TRttiProperty;
+  BestScore, Score : Double;
   Count : Integer;
 begin
-  Plan := nil;
+  TargetProps := FContext.GetType(TypeInfo(T)).GetProperties;
+  SourceProps := SourceType.GetProperties;
+
+  SetLength(Result, Length(TargetProps));
   Count := 0;
 
-  TType.GetType<T>.Properties.ForEach(
-    procedure(const TargetProp : TRttiProperty)
-    var
-      SourceProp : TRttiProperty;
-      BestProp : TRttiProperty;
-      BestScore : Double;
+  for TargetProp in TargetProps do
+  begin
+    if not Assigned(TargetProp.PropertyType) then
+      Continue;
+    if TargetProp.PropertyType.IsInstance then
+      Continue;
+    if not TargetProp.IsWritable then
+      Continue;
+
+    SourceProp := SourceType.GetProperty(TargetProp.Name);
+
+    if not Assigned(SourceProp) then
     begin
-      if not Assigned(TargetProp.PropertyType) then
-        Exit;
-      if TargetProp.PropertyType.IsInstance then
-        Exit;
-      if not TargetProp.IsWritable then
-        Exit;
+      //Fuzzy match: keep the highest scoring candidate we could actually
+      //assign, rather than whichever one comes last in declaration order.
+      BestProp := nil;
+      BestScore := 0;
 
-      if SourceType.HasProperty(TargetProp.Name) then
-        SourceProp := SourceType.GetProperty(TargetProp.Name)
-      else  //do fuzzy match
+      for Prop in SourceProps do
       begin
-        //Keep the highest scoring candidate we could actually assign, rather
-        //than whichever one happens to come last in declaration order.
-        BestProp := nil;
-        BestScore := 0;
-
-        SourceType.Properties.ForEach(
-          procedure(const Prop : TRttiProperty)
-          var
-            Score : Double;
-          begin
-            Score := TFuzzyStringMatch.StringSimilarityRatio(TargetProp.Name, Prop.Name, True);
-            if (Score >= FuzzyMatchThreshold) and (Score > BestScore) and Prop.IsReadable
-               and IsAssignable(Prop.PropertyType, TargetProp.PropertyType) then
-            begin
-              BestProp := Prop;
-              BestScore := Score;
-            end;
-          end);
-
-        SourceProp := BestProp;
+        Score := TFuzzyStringMatch.StringSimilarityRatio(TargetProp.Name, Prop.Name, True);
+        if (Score >= FuzzyMatchThreshold) and (Score > BestScore) and Prop.IsReadable
+           and IsAssignable(Prop.PropertyType, TargetProp.PropertyType) then
+        begin
+          BestProp := Prop;
+          BestScore := Score;
+        end;
       end;
 
-      if not Assigned(SourceProp) then
-        Exit;
-      if not SourceProp.IsReadable then
-        Exit;
-      if not IsAssignable(SourceProp.PropertyType, TargetProp.PropertyType) then
-        Exit;
+      SourceProp := BestProp;
+    end;
 
-      if Count = Length(Plan) then
-        SetLength(Plan, Count + 8);
-      Plan[Count].Source := SourceProp;
-      Plan[Count].Target := TargetProp;
-      Inc(Count);
-    end);
+    if not Assigned(SourceProp) then
+      Continue;
+    if not SourceProp.IsReadable then
+      Continue;
+    if not IsAssignable(SourceProp.PropertyType, TargetProp.PropertyType) then
+      Continue;
 
-  SetLength(Plan, Count);
-  Result := Plan;
+    Result[Count].Source := SourceProp;
+    Result[Count].Target := TargetProp;
+    Result[Count].TargetTypeInfo := TargetProp.PropertyType.Handle;
+    Result[Count].SameType := SourceProp.PropertyType.Handle = TargetProp.PropertyType.Handle;
+    Inc(Count);
+  end;
+
+  SetLength(Result, Count);
 end;
 
 class function TAutoMapper<T>.GetPlan(const Entity : TObject) : TMappingPlan;
 var
-  Key : Pointer;
+  Key : PTypeInfo;
 begin
   Key := Entity.ClassInfo;
 
+  //Built under the lock rather than outside it: unlike the replay path below,
+  //plan construction walks the RTTI pool, and this is a cold path that runs
+  //once per source type.
   TMonitor.Enter(FLock);
   try
-    if FPlanCache.TryGetValue(Key, Result) then
-      Exit;
-  finally
-    TMonitor.Exit(FLock);
-  end;
-
-  //Built outside the lock. Plan construction is idempotent, so at worst two
-  //threads racing on a cold cache each build the same plan and one wins.
-  Result := BuildPlan(TType.GetType(Entity.ClassInfo));
-
-  TMonitor.Enter(FLock);
-  try
-    FPlanCache[Key] := Result;
+    if not FPlanCache.TryGetValue(Key, Result) then
+    begin
+      Result := BuildPlan(FContext.GetType(Key));
+      FPlanCache.Add(Key, Result);
+    end;
   finally
     TMonitor.Exit(FLock);
   end;
 end;
 
 class procedure TAutoMapper<T>.MapUsingConfiguration(const Entity : TObject; const Target : TObject;
-  const Configuration : IDictionary<string, string>);
+  const Configuration : TDictionary<string, string>);
 var
   SourceType : TRttiType;
+  TargetProp, SourceProp : TRttiProperty;
+  MappedProp : string;
+  Value : TValue;
 begin
   //Not cached: the caller can hand a different dictionary to every call, and
   //an explicit mapping skips the expensive part (fuzzy scoring) anyway.
-  SourceType := TType.GetType(Entity.ClassInfo);
+  TMonitor.Enter(FLock);
+  try
+    SourceType := FContext.GetType(Entity.ClassInfo);
 
-  TType.GetType<T>.Properties.ForEach(
-    procedure(const TargetProp : TRttiProperty)
-    var
-      MappedProp : string;
-      Value : TValue;
+    for TargetProp in FContext.GetType(TypeInfo(T)).GetProperties do
     begin
       if not Assigned(TargetProp.PropertyType) then
-        Exit;
+        Continue;
       if TargetProp.PropertyType.IsInstance then
-        Exit;
+        Continue;
       if not Configuration.TryGetValue(TargetProp.Name, MappedProp) then
-        Exit;
+        Continue;
 
-      if not SourceType.HasProperty(MappedProp) then
+      SourceProp := SourceType.GetProperty(MappedProp);
+      if not Assigned(SourceProp) then
         raise Exception.CreateFmt('Invalid property mapping. Source: %s; Target: %s', [MappedProp, TargetProp.Name]);
 
       //An explicit mapping that cannot be honoured is a configuration error,
       //so say so rather than failing with an EInvalidCast.
-      if not TryGetMappedValue(SourceType.GetProperty(MappedProp), TargetProp, Entity, Value) then
+      if not TryGetMappedValue(SourceProp, TargetProp, Entity, Value) then
         raise Exception.CreateFmt('Property mapping is not assignable. Source: %s; Target: %s', [MappedProp, TargetProp.Name]);
 
       TargetProp.SetValue(Target, Value);
-    end);
+    end;
+  finally
+    TMonitor.Exit(FLock);
+  end;
 end;
 
-class procedure TAutoMapper<T>.DoMapping(const Entity: TObject; const Target : TObject; Configuration : IDictionary<string, string>);
+class procedure TAutoMapper<T>.DoMapping(const Entity: TObject; const Target : TObject;
+  Configuration : TDictionary<string, string>);
 var
   Plan : TMappingPlan;
-  Value : TValue;
+  Raw, Value : TValue;
   I : Integer;
 begin
   if Assigned(Configuration) then
@@ -258,12 +268,20 @@ begin
   end;
 
   Plan := GetPlan(Entity);
+
+  //Everything this loop needs was resolved when the plan was built, so it never
+  //re-enters the RTTI pool and needs no lock.
   for I := 0 to High(Plan) do
-    if TryGetMappedValue(Plan[I].Source, Plan[I].Target, Entity, Value) then
+  begin
+    Raw := Plan[I].Source.GetValue(Entity);
+    if Plan[I].SameType then
+      Plan[I].Target.SetValue(Target, Raw)
+    else if Raw.TryCast(Plan[I].TargetTypeInfo, Value) then
       Plan[I].Target.SetValue(Target, Value);
+  end;
 end;
 
-class function TAutoMapper<T>.Map(const Entity: TObject; Configuration: IDictionary<string, string>): T;
+class function TAutoMapper<T>.Map(const Entity: TObject; Configuration: TDictionary<string, string>): T;
 var
   Obj : T;
 begin
@@ -277,7 +295,7 @@ begin
   Result := Obj;
 end;
 
-class procedure TAutoMapper<T>.Map(const Source: TObject; const Target: T; Configuration: IDictionary<string, string>);
+class procedure TAutoMapper<T>.Map(const Source: TObject; const Target: T; Configuration: TDictionary<string, string>);
 begin
   DoMapping(Source, Target, Configuration);
 end;
