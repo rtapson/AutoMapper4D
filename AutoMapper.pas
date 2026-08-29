@@ -9,65 +9,88 @@ interface
 
 uses
 {$IFDEF FPC}
+  SysUtils,
   TypInfo,
   Generics.Collections;
 {$ELSE}
+  System.SysUtils,
   System.TypInfo,
   System.Generics.Collections;
 {$ENDIF}
 
 type
+  EAutoMapperError = class(Exception);
+
   //Non-generic engine holding everything that does not depend on the target
-  //type: the RTTI context, the plan cache and the mapping itself.
+  //type: the RTTI context, the plan cache, the global settings and the mapping
+  //itself.
   //
   //Splitting it out is not only tidier - it is required for Free Pascal, which
   //as of 3.2.2 parses `class var` inside a generic class but does not emit
   //storage for it, so a specialisation fails to link.
   //
-  //This type is an implementation detail; use TAutoMapper<T> or Adapt<T>.
+  //Map through TAutoMapper<T>; come here for the settings.
   TMapperEngine = class
+  private
+    class var FFuzzyMatchThreshold : Double;
+    class var FStrict : Boolean;
+    class procedure SetFuzzyMatchThreshold(const Value : Double); static;
   public
     class procedure MapObject(const Entity : TObject; const Target : TObject;
       const TargetInfo : PTypeInfo; const Configuration : TDictionary<string, string>);
+
+    //Cached plans are built against the current threshold, so changing it
+    //discards them. Exposed as well for tests and for long-running processes
+    //that map many short-lived types.
+    class procedure ClearCache;
+
+    //Minimum similarity ratio a source property name must reach before it is
+    //considered a fuzzy match. Defaults to 0.8. Setting it clears the cache.
+    class property FuzzyMatchThreshold : Double read FFuzzyMatchThreshold
+      write SetFuzzyMatchThreshold;
+
+    //When set, a target property that no source property matches raises
+    //EAutoMapperError instead of being silently left at its default. Off by
+    //default. The check runs before anything is written, so a strict failure
+    //leaves the target untouched.
+    class property Strict : Boolean read FStrict write FStrict;
   end;
 
   TAutoMapper<T : class, constructor> = class
-  private
-    //Deliberately not overloaded. FPC cannot resolve a call to the overloaded
-    //Map from inside the Adapt<T> helper, because T could itself be a
-    //TDictionary, so both Map and Adapt route through these.
-    class function MapNew(const Entity : TObject;
-      Configuration : TDictionary<string, string>) : T;
-    class procedure MapOnto(const Source : TObject; const Target : T;
-      Configuration : TDictionary<string, string>);
   public
+    //Deliberately not overloaded, and public so AutoMapper.Helper can reach
+    //them: FPC cannot resolve a call to the overloaded Map from inside a
+    //generic helper method, because T could itself be a TDictionary.
+    class function MapNew(const Entity : TObject;
+      Configuration : TDictionary<string, string> = nil) : T;
+    class procedure MapOnto(const Source : TObject; const Target : T;
+      Configuration : TDictionary<string, string> = nil);
+
     //Configuration, when supplied, maps target property name -> source property
-    //name. The caller retains ownership of the dictionary; it is never freed
-    //here.
+    //name, and acts as an override layer on top of automatic matching: target
+    //properties it does not mention are still matched by name and fuzzily. The
+    //caller retains ownership of the dictionary; it is never freed here.
     class function Map(const Entity : TObject; Configuration : TDictionary<string, string> = nil): T; overload;
     class procedure Map(const Source : TObject; const Target : T; Configuration : TDictionary<string, string> = nil); overload;
-  end;
-
-  AutoMapper4D = class helper for TObject
-    function Adapt<T: class, constructor>: T; overload;
-    procedure Adapt<T: class, constructor>(const DestObject: T); overload;
   end;
 
 implementation
 
 uses
 {$IFDEF FPC}
-  SysUtils,
   Rtti,
   SyncObjs,
 {$ELSE}
-  System.SysUtils,
   System.Rtti,
   System.SyncObjs,
 {$ENDIF}
   uFuzzyStringMatch;
 
 const
+  //Nested mapping only ever descends into objects the target already holds, but
+  //two object graphs that both contain a cycle would still recurse forever.
+  MaxNestingDepth = 16;
+
 {$IFDEF FPC}
   //The type kinds FPC 3.2.2 TRttiProperty.GetValue/SetValue actually handle.
   //SetValue RAISES on anything else - notably tkSet and tkRecord - so those
@@ -76,10 +99,6 @@ const
                        tkChar, tkBool, tkWChar, tkEnumeration, tkFloat,
                        tkInterface, tkDynArray];
 {$ENDIF}
-
-  //Minimum similarity ratio a source property name must reach before it is
-  //considered a fuzzy match for a target property.
-  FuzzyMatchThreshold = 0.8;
 
 type
   //One resolved source -> target property pair. The type handles are resolved
@@ -90,12 +109,18 @@ type
     Target : TRttiProperty;
     TargetTypeInfo : PTypeInfo;
     SameType : Boolean;
+    //Both sides are object properties: map into the instance the target already
+    //holds rather than assigning the source's.
+    Nested : Boolean;
   end;
 
-  //The full set of pairs for one source/target type combination. Name matching
-  //and fuzzy scoring depend only on the two types, so a plan is computed once
-  //and replayed for every subsequent object.
-  TMappingPlan = TArray<TPropertyMapping>;
+  //The resolved mapping for one source/target type combination, plus the target
+  //properties nothing matched - recorded here so strict mode costs nothing on
+  //the mapping path.
+  TMappingPlan = record
+    Items : TArray<TPropertyMapping>;
+    Unmatched : TArray<string>;
+  end;
 
   TPlansBySource = TDictionary<PTypeInfo, TMappingPlan>;
 
@@ -107,6 +132,10 @@ var
   //Nested rather than keyed on a pair, so a lookup is two pointer hashes and
   //needs no key allocation on the hot path.
   GPlans : TDictionary<PTypeInfo, TPlansBySource>;
+
+procedure MapRecursive(const Entity : TObject; const Target : TObject;
+  const TargetInfo : PTypeInfo; const Configuration : TDictionary<string, string>;
+  const Depth : Integer); forward;
 
 //Static, type-level compatibility test used when a plan is built. Kept
 //conservative: identical types, or a conversion within the ordinal/float family
@@ -184,18 +213,57 @@ begin
     Result := TryConvert(Raw, TargetProp.PropertyType.Handle, Value);
 end;
 
+//Is SourceProp a usable source for TargetProp? WantInstance selects between the
+//nested case (both sides objects) and the scalar case (assignable types).
+function IsUsableSource(const SourceProp, TargetProp : TRttiProperty;
+  const WantInstance : Boolean) : Boolean;
+begin
+  Result := Assigned(SourceProp) and SourceProp.IsReadable
+            and Assigned(SourceProp.PropertyType)
+            and (SourceProp.PropertyType.IsInstance = WantInstance);
+  if Result and not WantInstance then
+    Result := IsAssignable(SourceProp.PropertyType, TargetProp.PropertyType);
+end;
+
+//Highest scoring usable source property at or above the threshold, rather than
+//whichever one happens to come last in declaration order.
+function BestFuzzyMatch(const SourceProps : TArray<TRttiProperty>;
+  const TargetProp : TRttiProperty; const WantInstance : Boolean) : TRttiProperty;
+var
+  BestScore, Score : Double;
+  J : Integer;
+begin
+  Result := nil;
+  BestScore := 0;
+
+  for J := 0 to High(SourceProps) do
+  begin
+    if not IsUsableSource(SourceProps[J], TargetProp, WantInstance) then
+      Continue;
+
+    Score := TFuzzyStringMatch.StringSimilarityRatio(TargetProp.Name, SourceProps[J].Name, True);
+    if (Score >= TMapperEngine.FuzzyMatchThreshold) and (Score > BestScore) then
+    begin
+      Result := SourceProps[J];
+      BestScore := Score;
+    end;
+  end;
+end;
+
 function BuildPlan(const SourceType, TargetType : TRttiType) : TMappingPlan;
 var
   TargetProps, SourceProps : TArray<TRttiProperty>;
-  TargetProp, SourceProp, Prop, BestProp : TRttiProperty;
-  BestScore, Score : Double;
-  Count, I, J : Integer;
+  TargetProp, SourceProp : TRttiProperty;
+  Count, Missing, I : Integer;
+  WantInstance : Boolean;
 begin
   TargetProps := TargetType.GetProperties;
   SourceProps := SourceType.GetProperties;
 
-  SetLength(Result, Length(TargetProps));
+  SetLength(Result.Items, Length(TargetProps));
+  SetLength(Result.Unmatched, Length(TargetProps));
   Count := 0;
+  Missing := 0;
 
   for I := 0 to High(TargetProps) do
   begin
@@ -203,50 +271,54 @@ begin
 
     if not Assigned(TargetProp.PropertyType) then
       Continue;
-    if TargetProp.PropertyType.IsInstance then
-      Continue;
-    if not TargetProp.IsWritable then
-      Continue;
 
+    WantInstance := TargetProp.PropertyType.IsInstance;
+
+    //A nested target is read, not written: mapping descends into the instance
+    //it already holds. A scalar target has to be writable. Either way a target
+    //we could never write is skipped silently rather than reported as
+    //unmatched - there is no source that would help.
+    if WantInstance then
+    begin
+      if not TargetProp.IsReadable then
+        Continue;
+    end
+    else
+      if not TargetProp.IsWritable then
+        Continue;
+
+    //An exact name match still has to be usable; if it is not, fall through to
+    //fuzzy matching rather than treating the property as matched.
     SourceProp := SourceType.GetProperty(TargetProp.Name);
+    if not IsUsableSource(SourceProp, TargetProp, WantInstance) then
+      SourceProp := BestFuzzyMatch(SourceProps, TargetProp, WantInstance);
 
     if not Assigned(SourceProp) then
     begin
-      //Fuzzy match: keep the highest scoring candidate we could actually
-      //assign, rather than whichever one comes last in declaration order.
-      BestProp := nil;
-      BestScore := 0;
-
-      for J := 0 to High(SourceProps) do
-      begin
-        Prop := SourceProps[J];
-        Score := TFuzzyStringMatch.StringSimilarityRatio(TargetProp.Name, Prop.Name, True);
-        if (Score >= FuzzyMatchThreshold) and (Score > BestScore) and Prop.IsReadable
-           and IsAssignable(Prop.PropertyType, TargetProp.PropertyType) then
-        begin
-          BestProp := Prop;
-          BestScore := Score;
-        end;
-      end;
-
-      SourceProp := BestProp;
+      Result.Unmatched[Missing] := TargetProp.Name;
+      Inc(Missing);
+      Continue;
     end;
 
-    if not Assigned(SourceProp) then
-      Continue;
-    if not SourceProp.IsReadable then
-      Continue;
-    if not IsAssignable(SourceProp.PropertyType, TargetProp.PropertyType) then
-      Continue;
-
-    Result[Count].Source := SourceProp;
-    Result[Count].Target := TargetProp;
-    Result[Count].TargetTypeInfo := TargetProp.PropertyType.Handle;
-    Result[Count].SameType := SourceProp.PropertyType.Handle = TargetProp.PropertyType.Handle;
+    Result.Items[Count].Source := SourceProp;
+    Result.Items[Count].Target := TargetProp;
+    Result.Items[Count].Nested := WantInstance;
+    if WantInstance then
+    begin
+      Result.Items[Count].TargetTypeInfo := nil;
+      Result.Items[Count].SameType := False;
+    end
+    else
+    begin
+      Result.Items[Count].TargetTypeInfo := TargetProp.PropertyType.Handle;
+      Result.Items[Count].SameType :=
+        SourceProp.PropertyType.Handle = TargetProp.PropertyType.Handle;
+    end;
     Inc(Count);
   end;
 
-  SetLength(Result, Count);
+  SetLength(Result.Items, Count);
+  SetLength(Result.Unmatched, Missing);
 end;
 
 function GetPlan(const SourceInfo, TargetInfo : PTypeInfo) : TMappingPlan;
@@ -274,7 +346,56 @@ begin
   end;
 end;
 
-procedure MapUsingConfiguration(const Entity : TObject; const Target : TObject;
+procedure CheckNothingUnmatched(const Plan : TMappingPlan; const TargetInfo : PTypeInfo;
+  const Configuration : TDictionary<string, string>);
+var
+  I : Integer;
+begin
+  for I := 0 to High(Plan.Unmatched) do
+  begin
+    //An explicit configuration entry counts as a match.
+    if Assigned(Configuration) and Configuration.ContainsKey(Plan.Unmatched[I]) then
+      Continue;
+
+    raise EAutoMapperError.CreateFmt(
+      'Strict mapping: no source property matches target property "%s" on %s.',
+      [Plan.Unmatched[I], GContext.GetType(TargetInfo).Name]);
+  end;
+end;
+
+procedure ApplyPlan(const Plan : TMappingPlan; const Entity : TObject;
+  const Target : TObject; const Depth : Integer);
+var
+  I : Integer;
+  Raw, Value : TValue;
+  SourceChild, TargetChild : TObject;
+begin
+  //Everything this loop needs was resolved when the plan was built, so it never
+  //re-enters the RTTI pool and needs no lock.
+  for I := 0 to High(Plan.Items) do
+  begin
+    if Plan.Items[I].Nested then
+    begin
+      //Map into the instance the target already holds. A nil child is skipped:
+      //nothing is constructed here, so ownership never changes hands.
+      SourceChild := Plan.Items[I].Source.GetValue(Pointer(Entity)).AsObject;
+      TargetChild := Plan.Items[I].Target.GetValue(Pointer(Target)).AsObject;
+      if Assigned(SourceChild) and Assigned(TargetChild) then
+        MapRecursive(SourceChild, TargetChild, TargetChild.ClassInfo, nil, Depth + 1);
+      Continue;
+    end;
+
+    Raw := Plan.Items[I].Source.GetValue(Pointer(Entity));
+    if Plan.Items[I].SameType then
+      Plan.Items[I].Target.SetValue(Pointer(Target), Raw)
+    else if TryConvert(Raw, Plan.Items[I].TargetTypeInfo, Value) then
+      Plan.Items[I].Target.SetValue(Pointer(Target), Value);
+  end;
+end;
+
+//Applied on top of the automatic plan, so a configuration entry overrides the
+//match for the properties it names and leaves the rest alone.
+procedure ApplyConfiguration(const Entity : TObject; const Target : TObject;
   const TargetInfo : PTypeInfo; const Configuration : TDictionary<string, string>);
 var
   SourceType : TRttiType;
@@ -284,8 +405,7 @@ var
   Value : TValue;
   I : Integer;
 begin
-  //Not cached: the caller can hand a different dictionary to every call, and an
-  //explicit mapping skips the expensive part (fuzzy scoring) anyway.
+  //Not cached: the caller can hand a different dictionary to every call.
   GLock.Acquire;
   try
     SourceType := GContext.GetType(Entity.ClassInfo);
@@ -304,18 +424,42 @@ begin
 
       SourceProp := SourceType.GetProperty(MappedProp);
       if not Assigned(SourceProp) then
-        raise Exception.CreateFmt('Invalid property mapping. Source: %s; Target: %s', [MappedProp, TargetProp.Name]);
+        raise EAutoMapperError.CreateFmt('Invalid property mapping. Source: %s; Target: %s', [MappedProp, TargetProp.Name]);
 
       //An explicit mapping that cannot be honoured is a configuration error, so
       //say so rather than failing with an EInvalidCast.
       if not TryGetMappedValue(SourceProp, TargetProp, Entity, Value) then
-        raise Exception.CreateFmt('Property mapping is not assignable. Source: %s; Target: %s', [MappedProp, TargetProp.Name]);
+        raise EAutoMapperError.CreateFmt('Property mapping is not assignable. Source: %s; Target: %s', [MappedProp, TargetProp.Name]);
 
       TargetProp.SetValue(Pointer(Target), Value);
     end;
   finally
     GLock.Release;
   end;
+end;
+
+procedure MapRecursive(const Entity : TObject; const Target : TObject;
+  const TargetInfo : PTypeInfo; const Configuration : TDictionary<string, string>;
+  const Depth : Integer);
+var
+  Plan : TMappingPlan;
+begin
+  if Depth > MaxNestingDepth then
+    raise EAutoMapperError.CreateFmt(
+      'Nested mapping exceeded %d levels; the object graph probably contains a cycle.',
+      [MaxNestingDepth]);
+
+  Plan := GetPlan(Entity.ClassInfo, TargetInfo);
+
+  //Checked before anything is written, so a strict failure leaves the target
+  //exactly as it was.
+  if TMapperEngine.Strict then
+    CheckNothingUnmatched(Plan, TargetInfo, Configuration);
+
+  ApplyPlan(Plan, Entity, Target, Depth);
+
+  if Assigned(Configuration) then
+    ApplyConfiguration(Entity, Target, TargetInfo, Configuration);
 end;
 
 procedure ReleasePlans;
@@ -328,31 +472,41 @@ end;
 
 { TMapperEngine }
 
+class procedure TMapperEngine.SetFuzzyMatchThreshold(const Value : Double);
+begin
+  GLock.Acquire;
+  try
+    if Value = FFuzzyMatchThreshold then
+      Exit;
+    FFuzzyMatchThreshold := Value;
+    //Cached plans were resolved against the old threshold.
+    ReleasePlans;
+    GPlans.Clear;
+  finally
+    GLock.Release;
+  end;
+end;
+
+class procedure TMapperEngine.ClearCache;
+begin
+  GLock.Acquire;
+  try
+    ReleasePlans;
+    GPlans.Clear;
+  finally
+    GLock.Release;
+  end;
+end;
+
 class procedure TMapperEngine.MapObject(const Entity : TObject; const Target : TObject;
   const TargetInfo : PTypeInfo; const Configuration : TDictionary<string, string>);
-var
-  Plan : TMappingPlan;
-  Raw, Value : TValue;
-  I : Integer;
 begin
-  if Assigned(Configuration) then
-  begin
-    MapUsingConfiguration(Entity, Target, TargetInfo, Configuration);
-    Exit;
-  end;
+  if not Assigned(Entity) then
+    raise EAutoMapperError.Create('AutoMapper: the source object is nil.');
+  if not Assigned(Target) then
+    raise EAutoMapperError.Create('AutoMapper: the target object is nil.');
 
-  Plan := GetPlan(Entity.ClassInfo, TargetInfo);
-
-  //Everything this loop needs was resolved when the plan was built, so it never
-  //re-enters the RTTI pool and needs no lock.
-  for I := 0 to High(Plan) do
-  begin
-    Raw := Plan[I].Source.GetValue(Pointer(Entity));
-    if Plan[I].SameType then
-      Plan[I].Target.SetValue(Pointer(Target), Raw)
-    else if TryConvert(Raw, Plan[I].TargetTypeInfo, Value) then
-      Plan[I].Target.SetValue(Pointer(Target), Value);
-  end;
+  MapRecursive(Entity, Target, TargetInfo, Configuration, 0);
 end;
 
 { TAutoMapper<T> }
@@ -388,24 +542,12 @@ begin
   MapOnto(Source, Target, Configuration);
 end;
 
-{ AutoMapper4D }
-
-function AutoMapper4D.Adapt<T>: T;
-begin
-  //Routed through MapNew rather than Map so the call is not overloaded: the new
-  //object is still freed if mapping raises.
-  Result := TAutoMapper<T>.MapNew(Self, nil);
-end;
-
-procedure AutoMapper4D.Adapt<T>(const DestObject: T);
-begin
-  TAutoMapper<T>.MapOnto(Self, DestObject, nil);
-end;
-
 initialization
   GContext := TRttiContext.Create;
   GLock := TCriticalSection.Create;
   GPlans := TDictionary<PTypeInfo, TPlansBySource>.Create;
+  TMapperEngine.FFuzzyMatchThreshold := 0.8;
+  TMapperEngine.FStrict := False;
 
 finalization
   //Inner dictionaries are owned here rather than by a TObjectDictionary, which

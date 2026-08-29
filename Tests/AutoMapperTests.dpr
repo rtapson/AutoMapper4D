@@ -16,6 +16,7 @@ uses
   uTestClassB in '..\uTestClassB.pas',
   uTestClassA in '..\uTestClassA.pas',
   AutoMapper in '..\AutoMapper.pas',
+  AutoMapper.Helper in '..\AutoMapper.Helper.pas',
   uFuzzyStringMatch in '..\uFuzzyStringMatch.pas';
 
 var
