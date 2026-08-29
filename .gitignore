@@ -91,3 +91,15 @@ ConverterBackup/
 
 # Free Pascal test output
 Tests/fpc/out/
+
+# Delphi per-platform build output (DCC_ExeOutput is .\$(Platform)\$(Config))
+Win32/
+Win64/
+OSX64/
+Android/
+Android64/
+iOSDevice64/
+Linux64/
+
+# DUnitX NUnit logger output
+dunitx-results.xml
