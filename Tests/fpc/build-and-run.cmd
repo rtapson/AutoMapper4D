@@ -32,7 +32,7 @@ if not defined FPC (
 if not exist "%OUT%" mkdir "%OUT%"
 
 echo Using %FPC%
-"%FPC%" -Mdelphi -Fu"%REPO%" -FU"%OUT%" -FE"%OUT%" "%HERE%FpcAutoMapperTests.lpr"
+"%FPC%" -Mdelphi -Fu"%REPO%" -Fu"%HERE%" -FU"%OUT%" -FE"%OUT%" "%HERE%FpcAutoMapperTests.lpr"
 if errorlevel 1 (
   echo(
   echo ERROR: compilation failed.
@@ -40,5 +40,6 @@ if errorlevel 1 (
 )
 
 echo(
-"%OUT%\FpcAutoMapperTests.exe"
+rem --format=plain gives readable output; the default is NUnit XML.
+"%OUT%\FpcAutoMapperTests.exe" --all --format=plain
 exit /b %errorlevel%

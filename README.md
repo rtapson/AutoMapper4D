@@ -225,7 +225,7 @@ cannot compile the numeric `RT_MANIFEST` entry this script uses.
 runs as a console application, and supports TestInsight when built with the
 `TESTINSIGHT` define.
 
-For Free Pascal there is a separate console test at `Tests/fpc`; see
+For Free Pascal there is an fpcunit suite under `Tests/fpc`; see
 [Free Pascal / Lazarus](#free-pascal--lazarus).
 
 ## Free Pascal / Lazarus
@@ -233,14 +233,28 @@ For Free Pascal there is a separate console test at `Tests/fpc`; see
 Supported, and verified against **FPC 3.2.2**. The same sources build on both
 compilers; the `uses` clauses switch on `{$IFDEF FPC}`.
 
+The tests are an fpcunit suite in `Tests/fpc/uAutoMapperFpcTests.pas` — 22 test
+cases covering the property kinds, case-insensitive and fuzzy name matching,
+both `Adapt<T>` overloads, mapping onto an existing object, configuration and
+its error path, the nil guards, strict mode, the configurable threshold, nested
+mapping, and the cached plan path.
+
+**One suite, two runners:**
+
 ```
 Tests\fpc\build-and-run.cmd
 ```
 
-builds and runs `Tests/fpc/FpcAutoMapperTests.lpr`, a console program covering
-automatic mapping, case-insensitive and fuzzy name matching, mapping onto an
-existing object, both `Adapt<T>` overloads, configuration, and the cached plan
-path.
+builds and runs the **console** runner (`Tests/fpc/FpcAutoMapperTests.lpr`). It
+needs only `fpc` on the `PATH` — no Lazarus, no LCL — so it is the one to use
+in CI. It finds the compiler itself, falling back to a Lazarus installation.
+
+`fpcAutoMapperTests.lpi` is the **Lazarus GUI** runner, for working
+interactively in the IDE. Open it in Lazarus and run, or build it headlessly:
+
+```
+lazbuild fpcAutoMapperTests.lpi
+```
 
 ### Two limitations on FPC
 
@@ -262,10 +276,6 @@ Most visibly, **set properties are not mapped on FPC** (`TTests` in the
 samples). There is also no `TValue.TryCast` in FPC, so the FPC build maps
 identically typed properties only, where Delphi also converts within the
 ordinal/float and string families.
-
-`automappertestcase1.pas` in the repository root is still the generated fpcunit
-stub, whose only test calls `Fail('Write your own test')`. The program above is
-the working test.
 
 ## License
 
