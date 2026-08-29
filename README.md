@@ -26,17 +26,18 @@ end;
 
 ## Requirements
 
-- **Delphi.** VCL, Win32. The project files are in the 10.3 Rio format
-  (`ProjectVersion` 18.8); the library is built and tested against Delphi 12.
-  The demo application uses inline variable declarations, so it needs 10.3 or
-  later.
+- **Delphi.** VCL, Win32. Built and tested against Delphi 12. The project files
+  are in the Delphi 12 format (`ProjectVersion` 20.4), so an older IDE will not
+  open them directly — the units themselves are less demanding, though the demo
+  application uses inline variable declarations and so needs 10.3 or later.
 - **Free Pascal 3.2.2** also works — see [Free Pascal / Lazarus](#free-pascal--lazarus)
   for the two limitations that come with it.
 - **No third-party dependencies.** The library uses only the RTL —
   `System.Rtti`, `System.TypInfo` and `System.Generics.Collections` (undotted
   under FPC).
 
-Add `AutoMapper.pas` and `uFuzzyStringMatch.pas` to your project. That is all.
+Add `AutoMapper.pas` and `uFuzzyStringMatch.pas` to your project. That is all -
+plus `AutoMapper.Helper.pas` if you want the `Adapt<T>` sugar.
 
 ## Usage
 
